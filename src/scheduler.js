@@ -40,7 +40,7 @@ function totalDue() {
   for (const row of rows) {
     if (running.has(row.address)) continue;
     const last = db.prepare(
-      "SELECT next_eligible_at FROM votes WHERE wallet_address=? AND status='confirmed' ORDER BY id DESC LIMIT 1"
+      "SELECT next_eligible_at FROM votes WHERE wallet_address=? AND status IN ('confirmed','timeout','unverified') ORDER BY id DESC LIMIT 1"
     ).get(row.address);
     const nextAt = last?.next_eligible_at ?? 0;
     if (nextAt + cfg.cooldownBuffer <= nowSec) due++;
@@ -65,7 +65,7 @@ async function tick() {
     if (launched >= cfg.maxConcurrent - running.size) break;
     if (running.has(row.address)) continue;
     const last = db.prepare(
-      "SELECT next_eligible_at, status FROM votes WHERE wallet_address=? AND status IN ('confirmed','timeout') ORDER BY id DESC LIMIT 1"
+      "SELECT next_eligible_at, status FROM votes WHERE wallet_address=? AND status IN ('confirmed','timeout','unverified') ORDER BY id DESC LIMIT 1"
     ).get(row.address);
     // 'timeout' votes: unknown state — voter.js re-reads chain, which is authoritative
     const nextAt = last?.next_eligible_at ?? 0;
@@ -77,7 +77,7 @@ async function tick() {
       .then((r) => {
         if (r.voted) console.log(`VOTE  ${row.address} ${r.txHash} fee=${r.fee}BOT`);
         else if (r.skipped) console.log(`SKIP  ${row.address} ${r.skipped}`);
-        else console.warn(`FAIL  ${row.address} ${r.error}`);
+        else console.warn(`FAIL  ${row.address} ${r.txHash ?? ""} ${r.error}`);
       })
       .catch((e) => console.error(`CRASH ${row.address} ${String(e.message).slice(0, 150)}`))
       .finally(() => running.delete(row.address));

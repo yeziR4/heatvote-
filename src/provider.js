@@ -12,7 +12,7 @@ export const VOTE_ABI = [
   "function nextVoteAt(address voter) view returns (uint256)",
   "function whitelist(address account) view returns (bool)",
   "function voteCooldown() view returns (uint256)",
-  "event Vote(uint256 indexed projectID, address indexed voter, address indexed blockTs)",
+  "event Vote(uint256 indexed projectID, address indexed voter, uint256 indexed blockTs)",
 ];
 
 export const readContract = new ethers.Contract(cfg.votingProxy, VOTE_ABI, provider);

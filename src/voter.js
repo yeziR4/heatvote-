@@ -58,6 +58,10 @@ export async function voteOnce(row, attempt = 1) {
     const rc = await tx.wait(1, WAIT_TIMEOUT_MS);
     if (rc.status !== 1) throw new Error(`reverted in block ${rc.blockNumber}`);
 
+    // Gas is spent the moment the tx is mined, so compute the fee before any
+    // verification step can throw — a decode hiccup must not hide a real cost.
+    const feeWei = rc.gasUsed * (rc.gasPrice ?? gasPrice);
+
     // 6) Decode the Vote event — project AND voter must match, every time
     let event = null;
     for (const log of rc.logs) {
@@ -68,15 +72,28 @@ export async function voteOnce(row, attempt = 1) {
     }
     // Positional access: the ABI names these `projectID`/`voter`, but index access
     // survives any ABI rename and can't silently resolve to undefined.
-    if (!event) throw new Error("VOTE EVENT MISMATCH — investigate before continuing");
-    const [eventProjectId, eventVoter] = event.args;
-    if (BigInt(eventProjectId) !== cfg.projectId || eventVoter !== wallet.address) {
-      throw new Error("VOTE EVENT MISMATCH — investigate before continuing");
+    const [eventProjectId, eventVoter] = event?.args ?? [];
+    const verified = event &&
+      BigInt(eventProjectId) === cfg.projectId &&
+      String(eventVoter).toLowerCase() === wallet.address.toLowerCase();
+
+    if (!verified) {
+      // The tx landed but we cannot prove it was our vote. Record what it cost,
+      // preserve the hash for the explorer, and flag it — never silently count it.
+      const fallbackNext = await readContract.nextVoteAt(wallet.address).catch(() => null);
+      db.prepare(
+        `UPDATE votes SET status='unverified', block_number=?, fee_bot=?, error=?,
+         next_eligible_at=? WHERE id=?`
+      ).run(rc.blockNumber, feeWei.toString(),
+           `VOTE EVENT MISMATCH — decoded project=${eventProjectId} voter=${eventVoter}`,
+           fallbackNext === null ? null : Number(fallbackNext), ins.lastInsertRowid);
+      kv.set("total_fees_bot", (BigInt(kv.get("total_fees_bot") ?? "0") + feeWei).toString());
+      console.error(`UNVERIFIED ${row.address} ${tx.hash} block=${rc.blockNumber} fee=${ethers.formatEther(feeWei)}BOT — fee recorded, check explorer`);
+      return { unverified: true, txHash: tx.hash, fee: ethers.formatEther(feeWei) };
     }
 
     // 7) Persist confirmation + new on-chain eligibility
     const newNext = await readContract.nextVoteAt(wallet.address);
-    const feeWei = rc.gasUsed * (rc.gasPrice ?? gasPrice);
     db.prepare(
       `UPDATE votes SET status='confirmed', block_number=?, fee_bot=?, event_project_id=?,
        event_voter=?, next_eligible_at=?, confirmed_at=datetime('now') WHERE id=?`
