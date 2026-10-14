@@ -17,6 +17,18 @@ if (String(projectInfo.projectId) !== String(cfg.projectId)) {
 }
 console.log(`boot OK — project: ${projectInfo.projectName} (id ${projectInfo.projectId})`);
 
+// ---- Leaderboard cache: at most one API refresh per 5 min (their limit is 100 req/min) ----
+// Seeded from the boot-time fetch so we don't spend a second call on startup.
+let cachedBoard = projectInfo, boardAt = Date.now();
+async function refreshBoard() {
+  if (Date.now() - boardAt < 5 * 60 * 1000 && cachedBoard) return cachedBoard;
+  try {
+    cachedBoard = await verifyProjectIdentity();
+    boardAt = Date.now();
+  } catch { /* keep old cache; board is non-critical */ }
+  return cachedBoard;
+}
+
 const running = new Set();
 
 function totalDue() {
@@ -77,11 +89,12 @@ tick();
 console.log(`scheduler up: projectId=${cfg.projectId} deadline=${cfg.deadline.toISOString()} tick=${cfg.tickSeconds}s`);
 
 // ---- /status endpoint for checking from your phone ----
-http.createServer((req, res) => {
+http.createServer(async (req, res) => {
   if (req.url !== "/status" && req.url !== "/") { res.writeHead(404); return res.end(); }
   const votes = db.prepare("SELECT status, COUNT(*) n FROM votes GROUP BY status").all();
   const fees = Number(kv.get("total_fees_bot") ?? "0") / 1e18;
   const wallets = db.prepare("SELECT status, COUNT(*) n FROM wallets GROUP BY status").all();
+  const board = await refreshBoard(); // cached; hits the API at most every 5 min
   res.writeHead(200, { "content-type": "application/json" });
   res.end(JSON.stringify({
     paused: kv.get("paused") === "1",
@@ -90,6 +103,9 @@ http.createServer((req, res) => {
     feesSpentBot: fees.toFixed(6),
     budgetCapBot: Number(cfg.budgetCapWei) / 1e18,
     walletsDueNow: running.size,
+    weeklyVotes: board?.weeklyVoteCount ?? null,
+    weeklyRank: board?.weeklyRankNo ?? null,
+    top20VotesNeeded: board ? Math.max(0, 520 - board.weeklyVoteCount) : null, // rough #20 target
     votes, wallets,
   }, null, 2));
 }).listen(cfg.port, () => console.log(`status endpoint on :${cfg.port}/status`));

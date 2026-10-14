@@ -35,12 +35,28 @@ export async function chainTime() {
   return b.timestamp;
 }
 
-// Verify project identity from BOT Chain's public API before anything signs
+// Verify project identity from BOT Chain's public API before anything signs.
+// Endpoint confirmed live 2026-10-14: POST /botadmin/ecosystem/votes/search
 export async function verifyProjectIdentity() {
-  const res = await fetch("https://botadmin-public-api.botchain.ai/botadmin/ecosystem/votes/search");
+  const res = await fetch(
+    "https://botadmin-public-api.botchain.ai/botadmin/ecosystem/votes/search",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ keyword: "Matchday", name: "Matchday", page: 1, pageSize: 20 }),
+    }
+  );
   if (!res.ok) throw new Error(`project API HTTP ${res.status}`);
-  const projects = await res.json();
-  const p = Array.isArray(projects) ? projects.find((x) => x.projectId === Number(cfg.projectId)) : null;
-  if (!p) throw new Error(`project ${cfg.projectId} not found in official API`);
+
+  const json = await res.json();
+  if (json.code !== 0 || !Array.isArray(json.data)) {
+    throw new Error(`project API error: code=${json.code} msg=${json.msg}`);
+  }
+
+  const p = json.data.find(
+    (x) => String(x.projectId) === String(cfg.projectId) && x.projectName === "Matchday"
+  );
+  if (!p) throw new Error(`project ${cfg.projectId}/Matchday not found in official API (got ${json.data.length} entries)`);
+  if (p.status !== "live") throw new Error(`project status is "${p.status}", expected "live"`);
   return p;
 }
