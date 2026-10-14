@@ -66,7 +66,11 @@ export async function voteOnce(row, attempt = 1) {
         if (parsed?.name === "Vote") { event = parsed; break; }
       } catch { /* not a Vote event */ }
     }
-    if (!event || BigInt(event.args.projectId) !== cfg.projectId || event.args.voter !== wallet.address) {
+    // Positional access: the ABI names these `projectID`/`voter`, but index access
+    // survives any ABI rename and can't silently resolve to undefined.
+    if (!event) throw new Error("VOTE EVENT MISMATCH — investigate before continuing");
+    const [eventProjectId, eventVoter] = event.args;
+    if (BigInt(eventProjectId) !== cfg.projectId || eventVoter !== wallet.address) {
       throw new Error("VOTE EVENT MISMATCH — investigate before continuing");
     }
 
@@ -76,8 +80,8 @@ export async function voteOnce(row, attempt = 1) {
     db.prepare(
       `UPDATE votes SET status='confirmed', block_number=?, fee_bot=?, event_project_id=?,
        event_voter=?, next_eligible_at=?, confirmed_at=datetime('now') WHERE id=?`
-    ).run(rc.blockNumber, feeWei.toString(), event.args.projectId.toString(),
-         event.args.voter, Number(newNext), ins.lastInsertRowid);
+    ).run(rc.blockNumber, feeWei.toString(), eventProjectId.toString(),
+         eventVoter, Number(newNext), ins.lastInsertRowid);
 
     const total = (BigInt(kv.get("total_fees_bot") ?? "0") + feeWei).toString();
     kv.set("total_fees_bot", total);
