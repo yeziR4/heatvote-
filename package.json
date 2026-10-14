@@ -1,0 +1,22 @@
+{
+  "name": "heatvote-campaign",
+  "version": "1.0.0",
+  "description": "BOT Chain HeatVote campaign coordinator for Matchday (project 597)",
+  "type": "module",
+  "main": "src/scheduler.js",
+  "scripts": {
+    "start": "node src/scheduler.js",
+    "init": "node src/init-wallets.js",
+    "fund": "node src/fund.js",
+    "report": "node src/monitor.js",
+    "pause": "node src/control.js pause",
+    "resume": "node src/control.js resume",
+    "status": "node src/control.js status",
+    "check": "node src/init-wallets.js 0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.4"
+  }
+}
