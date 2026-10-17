@@ -18,6 +18,9 @@ encrypted-at-rest wallet credentials.
    - `FUNDER_PRIVATE_KEY` — the distributor wallet
    - `VAULT_KEY` — `openssl rand -base64 32`
 
+See **[OVERVIEW.md](OVERVIEW.md)** for a full walkthrough of every module, the safety
+invariants, the fee-budget cap, failure modes, and the known loose ends.
+
 ## Usage
 ```bash
 npm run check          # read-only chain sanity check
