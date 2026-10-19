@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/scheduler.js",
   "scripts": {
-    "start": "node src/scheduler.js",
+    "start": "node src/boot.js",
     "init": "node src/init-wallets.js",
     "fund": "node src/fund.js",
     "report": "node src/monitor.js",
