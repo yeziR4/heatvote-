@@ -6,7 +6,7 @@
 //
 // Needs DB + RPC only: no VAULT_KEY, no keys decrypted, no transactions signed.
 import { db } from "./db.js";
-import { provider } from "./provider.js";
+import { provider, funderWallets } from "./provider.js";
 import { MIN_VOTE_FUNDING_WEI } from "./config.js";
 
 const all = db.prepare("SELECT address, status, consent_withdrawn, funder_tx_hash FROM wallets").all();
@@ -32,3 +32,12 @@ console.log(`healthy:        ${healthy}`);
 console.log(`never funded:   ${neverFunded.length} ${neverFunded.slice(0, 5).join(", ")}`);
 console.log(`funded but low: ${drained.length} ${drained.slice(0, 5).join(", ")}`);
 console.log(`total across active voter wallets: ${Number(totalBal) / 1e18} BOT`);
+
+try {
+  for (const f of funderWallets()) {
+    const b = await provider.getBalance(f.address);
+    console.log(`funder ${f.address} ${(Number(b) / 1e18).toFixed(6)} BOT`);
+  }
+} catch (e) {
+  console.log(`funder balances unavailable: ${e?.message ?? e}`);
+}

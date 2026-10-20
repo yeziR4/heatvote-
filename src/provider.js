@@ -25,9 +25,16 @@ export function makeSigner(address, decryptedPrivateKey) {
   return { wallet, contract: new ethers.Contract(cfg.votingProxy, VOTE_ABI, wallet) };
 }
 
+export function funderWallets() {
+  const primary = process.env.FUNDER_PRIVATE_KEY?.trim();
+  const keys = [...(primary ? [primary] : []),
+                ...(process.env.FUNDER_PRIVATE_KEYS ?? "").split(",").map((k) => k.trim()).filter(Boolean)];
+  if (keys.length === 0) throw new Error("no funder keys set (FUNDER_PRIVATE_KEY / FUNDER_PRIVATE_KEYS)");
+  return keys.map((k) => new ethers.Wallet(k, provider));
+}
+
 export function funderWallet() {
-  if (!process.env.FUNDER_PRIVATE_KEY) throw new Error("FUNDER_PRIVATE_KEY not set");
-  return new ethers.Wallet(process.env.FUNDER_PRIVATE_KEY, provider);
+  return funderWallets()[0];
 }
 
 export async function chainTime() {
