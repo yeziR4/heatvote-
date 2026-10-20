@@ -192,7 +192,9 @@ expires. `unverified` rows *do* store eligibility, so they don't churn.
 | `DB_PATH` | `/data/campaign.db` | must be on the volume |
 | `PORT` | `8080` | `/status` |
 | `TARGET_TOPUP` | `0.0085` | **`refill.js` only — undocumented in `.env.example`** |
-| `FUNDER_PRIVATE_KEY` | — | **secret**, env only |
+| `FUNDER_PRIVATE_KEY` | — | **secret**, env only; primary funder |
+| `FUNDER_PRIVATE_KEYS` | — | **secret**, extra funder keys, comma-separated; fund/refill split work across all of them, each keeps `DIST_RESERVE_WEI / n` |
+| `REFILL_ON_BOOT` | unset | **boot.js only — run one refill pass on every start when set to `1`** |
 | `VAULT_KEY` | — | **secret**, 32 bytes base64; rotation is destructive |
 
 ### Commands
