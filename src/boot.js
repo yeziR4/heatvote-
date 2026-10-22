@@ -1,9 +1,22 @@
 // src/boot.js — boot sequence for `npm start`:
-// 1. FLEET_TARGET=N (optional): create voter wallets until the DB holds N of them.
-// 2. REFILL_ON_BOOT=1 (optional): run one partial refill pass.
-// 3. Start the scheduler. Each optional step is best-effort and never fatal.
+// 1. Self-heal the budget-cap pause: if fees are now below the configured cap
+//    (i.e. BUDGET_CAP_BOT was raised), clear the pause so a deploy alone resumes.
+// 2. FLEET_TARGET=N (optional): create voter wallets until the DB holds N of them.
+// 3. REFILL_ON_BOOT=1 (optional): run one partial refill pass.
+// 4. Start the scheduler. Optional steps are best-effort and never fatal.
 import "dotenv/config";
-import { db } from "./db.js";
+import { cfg } from "./config.js";
+import { db, kv } from "./db.js";
+
+if (kv.get("paused") === "1") {
+  const fees = BigInt(kv.get("total_fees_bot") ?? "0");
+  if (fees < cfg.budgetCapWei) {
+    kv.set("paused", "0");
+    console.log("pause cleared: fees below current BUDGET_CAP_BOT — resuming");
+  } else {
+    console.error(`still over budget cap (fees=${Number(fees) / 1e18} >= cap=${Number(cfg.budgetCapWei) / 1e18}) — staying paused`);
+  }
+}
 
 if (process.env.FLEET_TARGET) {
   const fleetCount = () => db.prepare("SELECT COUNT(*) n FROM wallets").get().n;
