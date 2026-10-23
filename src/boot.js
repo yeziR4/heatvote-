@@ -38,7 +38,8 @@ if (process.env.FLEET_TARGET) {
 
 if (process.env.REFILL_ON_BOOT === "1") {
   try {
-    await import("./refill.js");
+    const { refill } = await import("./refill.js");
+    await refill();
   } catch (e) {
     console.error("boot refill failed (continuing):", e?.message ?? e);
   }
