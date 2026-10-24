@@ -7,15 +7,23 @@ import { decryptKey } from "./crypto.js";
 const GAS_LIMIT_CAP = 80_000n;   // observed 38k-56k on real votes
 const WAIT_TIMEOUT_MS = 180_000; // 3 min to mine
 const MAX_ATTEMPTS = 2;
+const RPC_TIMEOUT_MS = 25_000;   // free calls must not wedge the tick loop (observed black-holed sockets)
+
+function withTimeout(p, what) {
+  return Promise.race([
+    p,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(`rpc-timeout: ${what}`)), RPC_TIMEOUT_MS)),
+  ]);
+}
 
 export async function voteOnce(row, attempt = 1) {
   const { wallet, contract } = makeSigner(row.address, decryptKey(row.encrypted_key));
 
   // 1) Re-read on-chain eligibility — the chain is the only source of truth
   const [nextVoteAt, isWhitelisted, now] = await Promise.all([
-    readContract.nextVoteAt(wallet.address),
-    readContract.whitelist(wallet.address),
-    chainTime(),
+    withTimeout(readContract.nextVoteAt(wallet.address), "nextVoteAt"),
+    withTimeout(readContract.whitelist(wallet.address), "whitelist"),
+    withTimeout(chainTime(), "chainTime"),
   ]);
   if (!isWhitelisted && now < Number(nextVoteAt) + cfg.cooldownBuffer) {
     return { skipped: "cooldown" };
@@ -23,7 +31,7 @@ export async function voteOnce(row, attempt = 1) {
 
   // 2) Simulate — catches VoteCooldownActive / InvalidProject / any revert, free
   try {
-    await readContract.vote.staticCall(cfg.projectId, { from: wallet.address });
+    await withTimeout(readContract.vote.staticCall(cfg.projectId, { from: wallet.address }), "staticCall");
   } catch (e) {
     return { skipped: `sim-revert: ${e.shortMessage ?? String(e.message).slice(0, 120)}` };
   }
@@ -31,19 +39,19 @@ export async function voteOnce(row, attempt = 1) {
   // 3) Gas estimate + fee caps
   let gasLimit;
   try {
-    const est = await readContract.vote.estimateGas(cfg.projectId, { from: wallet.address });
+    const est = await withTimeout(readContract.vote.estimateGas(cfg.projectId, { from: wallet.address }), "estimateGas");
     gasLimit = (est * 12n) / 10n; // 1.2 buffer; unused gas refunded
   } catch (e) {
     return { skipped: `estimate-fail: ${e.shortMessage ?? String(e.message).slice(0, 120)}` };
   }
   if (gasLimit > GAS_LIMIT_CAP) return { skipped: `gas-above-cap(${gasLimit})` };
 
-  let gasPrice = (await provider.getFeeData()).gasPrice ?? 20n * 10n ** 9n;
+  let gasPrice = (await withTimeout(provider.getFeeData(), "getFeeData")).gasPrice ?? 20n * 10n ** 9n;
   const priceCap = cfg.maxGasPriceGwei * 10n ** 9n;
   if (gasPrice > priceCap) gasPrice = priceCap;
 
   // 4) Funding check before signing
-  const balance = await provider.getBalance(wallet.address);
+  const balance = await withTimeout(provider.getBalance(wallet.address), "getBalance");
   if (balance < MIN_VOTE_FUNDING_WEI || balance < gasLimit * gasPrice) {
     return { skipped: "insufficient-balance" };
   }
