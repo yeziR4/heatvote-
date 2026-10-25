@@ -20,11 +20,15 @@ export async function refill() {
     "SELECT * FROM wallets WHERE status != 'retired' AND consent_withdrawn = 0"
   ).all();
 
-  // read every wallet balance first, then plan the top-ups in DB id order
+  // read every wallet balance first (parallel, chunked), then plan the top-ups in DB id order
   const plan = [];
+  const B = async (w) => ({ w, bal: await provider.getBalance(w.address) });
+  const chunks = [];
+  for (let i = 0; i < rows.length; i += 16) chunks.push(rows.slice(i, i + 16));
+  const balRows = [];
+  for (const c of chunks) balRows.push(...await Promise.all(c.map(B)));
   let totalNeeded = 0n;
-  for (const w of rows) {
-    const bal = await provider.getBalance(w.address);
+  for (const { w, bal } of balRows) {
     if (bal < TARGET) {
       const send = TARGET - bal;
       totalNeeded += send;
