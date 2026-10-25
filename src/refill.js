@@ -63,29 +63,28 @@ export async function refill() {
 
   if (plan.length === 0) { console.log("all wallets at target"); return; }
 
-  let pending = plan;
+  // per-funder workers run concurrently (each funder's own sends stay sequential = nonce-safe)
   let funded = 0;
-  let progress = true;
-  while (progress) {
-    progress = false;
-    for (let i = 0; i < pending.length; i++) {
-      const { row, send } = pending[i];
-      const fi = spendable.findIndex((s) => s >= send + transferGas);
-      if (fi === -1) continue;
-      spendable[fi] -= send + transferGas;
-      const f = funders[fi];
-      const tx = await f.sendTransaction({ to: row.address, value: send, gasLimit: 21000n, gasPrice, type: 0 });
+  const pending = plan;
+  await Promise.all(funders.map(async (f, fi) => {
+    while (true) {
+      let entry = null;
+      let idx = -1;
+      for (let i = 0; i < pending.length; i++) {
+        if (spendable[fi] >= pending[i].send + transferGas) { entry = pending[i]; idx = i; break; }
+      }
+      if (!entry) return; // this funder can no longer afford anything pending
+      spendable[fi] -= entry.send + transferGas;
+      pending.splice(idx, 1);
+      const tx = await f.sendTransaction({ to: entry.row.address, value: entry.send, gasLimit: 21000n, gasPrice, type: 0 });
       const rc = await tx.wait();
-      if (rc.status !== 1) throw new Error(`top-up reverted for ${row.address}`);
+      if (rc.status !== 1) throw new Error(`top-up reverted for ${entry.row.address}`);
       db.prepare("UPDATE wallets SET funder_tx_hash=COALESCE(funder_tx_hash,?), funded_amount=? WHERE id=?")
-        .run(tx.hash, ethers.formatEther(TARGET), row.id);
-      console.log(`topped ${row.address} +${ethers.formatEther(send)}BOT via ${f.address.slice(0, 10)}…`);
-      pending.splice(i, 1);
-      i--;
+        .run(tx.hash, ethers.formatEther(TARGET), entry.row.id);
+      console.log(`topped ${entry.row.address} +${ethers.formatEther(entry.send)}BOT via ${f.address.slice(0, 10)}…`);
       funded++;
-      progress = true;
     }
-  }
+  }));
 
   if (funded === 0) {
     throw new Error(`FUNDER CANNOT COVER ANY TOP-UP (${funders.length} funder(s), all below reserve) — fund a funder wallet or set a lower TARGET_TOPUP (e.g. 0.004)`);

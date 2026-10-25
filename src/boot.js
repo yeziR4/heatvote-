@@ -37,14 +37,18 @@ if (process.env.FLEET_TARGET) {
 }
 
 if (process.env.REFILL_ON_BOOT === "1") {
-  try {
+  const refillPromise = (async () => {
     const { refill } = await import("./refill.js");
     await refill();
-  } catch (e) {
-    console.error("boot refill failed (continuing):", e?.message ?? e);
-  }
+  })();
+  refillPromise.catch((e) => console.error("boot refill failed (continuing):", e?.message ?? e));
 } else {
   console.log("REFILL_ON_BOOT not set — skipping top-up pass");
 }
 
-await import("./scheduler.js");
+// scheduler starts concurrently with the refill pass — votes begin the moment a funded
+// wallet's balance is visible, instead of waiting for the whole top-up sweep to end
+try {
+  const schedulerImport = import("./scheduler.js");
+  schedulerImport.catch((e) => console.error("scheduler failed to start:", e?.message ?? e));
+} catch (e) { console.error("scheduler failed to start:", e?.message ?? e);}
