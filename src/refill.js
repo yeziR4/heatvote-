@@ -66,8 +66,15 @@ export async function refill() {
   // per-funder workers run concurrently (each funder's own sends stay sequential = nonce-safe)
   let funded = 0;
   const pending = plan;
+  // SPRINT_BUDGET_MS: absolute cap on how long the broadcast sweep may run (strike mode).
+  // In sprint mode we also skip receipt-waits — ethers keeps nonces consistent via
+  // getTransactionCount('pending'), so un-mined broadcasts still chain correctly.
+  const sprintMs = Number(process.env.SPRINT_BUDGET_MS ?? 0);
+  const deadline = sprintMs > 0 ? Date.now() + sprintMs : Infinity;
+  const sprint = sprintMs > 0;
   await Promise.all(funders.map(async (f, fi) => {
     while (true) {
+      if (Date.now() > deadline) return;
       let entry = null;
       let idx = -1;
       for (let i = 0; i < pending.length; i++) {
@@ -76,8 +83,14 @@ export async function refill() {
       if (!entry) return; // this funder can no longer afford anything pending
       spendable[fi] -= entry.send + transferGas;
       pending.splice(idx, 1);
-      const tx = await f.sendTransaction({ to: entry.row.address, value: entry.send, gasLimit: 21000n, gasPrice, type: 0 });
-      const rc = await tx.wait();
+      const tx = f.sendTransaction({ to: entry.row.address, value: entry.send, gasLimit: 21000n, gasPrice, type: 0 });
+      if (sprint) {
+        tx.catch((e) => console.error(`broadcast failed for ${entry.row.address}:`, String(e?.message ?? e).slice(0, 120)));
+        console.log(`sprint-staged ${entry.row.address} +${ethers.formatEther(entry.send)}BOT via ${f.address.slice(0, 10)}…`);
+        funded++;
+        continue;
+      }
+      const rc = await tx.then((t) => t.wait());
       if (rc.status !== 1) throw new Error(`top-up reverted for ${entry.row.address}`);
       db.prepare("UPDATE wallets SET funder_tx_hash=COALESCE(funder_tx_hash,?), funded_amount=? WHERE id=?")
         .run(tx.hash, ethers.formatEther(TARGET), entry.row.id);
